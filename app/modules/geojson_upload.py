@@ -1,5 +1,5 @@
+from app.modules.gee_initialization import authenticate_and_initialize
 import geopandas as gpd
-from shapely.geometry import Polygon
 import pyproj
 import geemap
 
@@ -15,6 +15,7 @@ def handle_geojson_upload(uploaded_file):
         geopandas.GeoDataFrame: A GeoDataFrame containing the geometry from the GeoJSON file.
                                 Returns None if the file is invalid or contains no bounded geometry.
     """
+    authenticate_and_initialize()
     try:
         # Load the GeoJSON file into a GeoDataFrame
         gdf = gpd.read_file(uploaded_file)
@@ -51,18 +52,16 @@ def handle_geojson_upload(uploaded_file):
         utm_crs = f"EPSG:{32600 + utm_zone}" if latitude >= 0 else f"EPSG:{32700 + utm_zone}"
         print(f"Automatically determined UTM CRS: {utm_crs}")
 
-        # Step 7: Reproject the GeoDataFrame to the determined UTM CRS
+        # Reproject the GeoDataFrame to the determined UTM CRS
         gdf_projected = gdf.to_crs(utm_crs)
 
-        return gdf_projected
+        # Convert the reprojected Geojson to an ee geometry
+        gdf_projected_ee = geemap.gdf_to_ee(gdf_projected).geometry()
+
+        return gdf_projected_ee
 
     except Exception as e:
         print(f"Invalid GeoJSON file: {e}")
         return None
 
 
-def convert_uploaded_file_to_ee_geometry(uploaded_file):
-    gdf = handle_geojson_upload(uploaded_file)
-    # convert it to a GEE geometry
-    gdf_projected_ee = geemap.gdf_to_ee(gdf).geometry()
-    return gdf_projected_ee
