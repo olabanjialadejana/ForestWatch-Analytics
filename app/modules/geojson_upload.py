@@ -15,7 +15,7 @@ def handle_geojson_upload(uploaded_file):
         geopandas.GeoDataFrame: A GeoDataFrame containing the geometry from the GeoJSON file.
                                 Returns None if the file is invalid or contains no bounded geometry.
     """
-    authenticate_and_initialize()
+    # authenticate_and_initialize()
     try:
         # Load the GeoJSON file into a GeoDataFrame
         gdf = gpd.read_file(uploaded_file)

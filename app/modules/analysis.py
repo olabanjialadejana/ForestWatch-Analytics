@@ -13,7 +13,7 @@ def get_forest_col(geopolygon):
 
     # Authenticate and initialize GEE
     authenticate_and_initialize()
-    print("Authenticated")
+    # print("Authenticated")
 
     # Load the Hansen Global Forest Change dataset
     forest_watch = ee.Image(FOREST_WATCH)
