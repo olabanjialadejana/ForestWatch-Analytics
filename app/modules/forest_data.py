@@ -1,87 +1,123 @@
-import ee
-import geemap
-from app.modules.geojson_upload import handle_geojson_upload
+"""Earth Engine data access for the Hansen Global Forest Change dataset."""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from app.modules.geojson_upload import (
+    convert_uploaded_file_to_ee_geometry,
+    handle_geojson_upload,
+)
 
 FOREST_WATCH = "UMD/hansen/global_forest_change_2023_v1_11"
 
+# Band names for the Hansen dataset.
+TREE_COVER_2000 = "treecover2000"
+LOSS = "loss"
+LOSS_YEAR = "lossyear"
+GAIN = "gain"
+DATAMASK = "datamask"
+FIRST = "first"
+LAST = "last"
 
 
-def authenticate_and_initialize():
-    try:
-        ee.Initialize()
-        print('GEE initialized (existing token).')
-    except:
-        # if token is expired, try to refresh it
-        # based on https://stackoverflow.com/questions/53472429/how-to-get-a-gcp-bearer-token-programmatically-with-python
-        try:
-            import google.auth
-            import google.auth.transport.requests
-            creds, project = google.auth.default()
-            # creds.valid is False, and creds.token is None
-            # refresh credentials to populate those
-            auth_req = google.auth.transport.requests.Request()
-            creds.refresh(auth_req)
-            # initialise GEE session with refreshed credentials
-            ee.Initialize(creds)
-            print('GEE initialized (refreshed token).')
-        except:
-            # get the user to authenticate manually and initialize the session
-            ee.Authenticate()
-            ee.Initialize()
-            print('GEE initialized (manual authentication).')
+_EE_INITIALIZED = False
 
 
-def get_variable(geopolygon):
-    """
-    Retrieves forest cover data from the Forest Watch dataset for a specified geographical polygon.
+def authenticate_and_initialize(project: Optional[str] = None) -> bool:
+    """Initialise the Earth Engine Python client.
 
-    This function initializes authentication for Google Earth Engine (GEE), processes the input
-    geographical polygon (GeoJSON format), simplifies it to reduce complexity, and extracts
-    relevant forest cover data from the FOREST_WATCH dataset.
+    Tries, in order:
+
+    1. A previously-initialised session (no-op).
+    2. ``ee.Initialize()`` using an existing token.
+    3. Refreshing default Google credentials.
+    4. Triggering ``ee.Authenticate()`` for interactive login.
 
     Args:
-        File path to a geopolygon (dict or geopandas.GeoDataFrame): File path to a GeoJSON-like dictionary or a
-            GeoDataFrame representing the area of interest (AOI).
+        project: Optional Google Cloud project ID to bind the session to.
 
     Returns:
-        ee.Image: A Google Earth Engine (GEE) image representing forest cover data for the
-        specified AOI.
-
+        ``True`` if Earth Engine is ready to use, otherwise ``False``.
     """
-    # Authenticate and initialize GEE
-    authenticate_and_initialize()
-    print("Authenticated")
+    global _EE_INITIALIZED
+    if _EE_INITIALIZED:
+        return True
 
-    # Load the Hansen Global Forest Change dataset
-    forest_watch = ee.Image(FOREST_WATCH)
-
-    # Handle the GeoJSON upload and validate the AOI
-    aoi = handle_geojson_upload(geopolygon)
-
-    # Check if the AOI is valid
-    if aoi is None:
-        print("Error: Invalid AOI. Cannot proceed.")
-        return None
-
-    # Simplify the geometry to reduce complexity
-    aoi["geometry"] = aoi["geometry"].simplify(tolerance=0.001, preserve_topology=True)
-
-    # Convert the GeoDataFrame to an ee.Geometry object
     try:
-        aoi_gee = geemap.gdf_to_ee(aoi)
+        import ee
+    except ImportError as exc:
+        print(f"earthengine-api not installed: {exc}")
+        return False
 
-    except Exception as e:
-        print(f"Error converting GeoDataFrame to ee.Geometry: {e}")
-        return None
+    init_kwargs = {"project": project} if project else {}
 
-
-    # Clip the forest data to the AOI
     try:
-        forest_col = forest_watch.clip(aoi_gee)
+        ee.Initialize(**init_kwargs)
+        _EE_INITIALIZED = True
+        print("GEE initialized (existing token).")
+        return True
+    except Exception:
+        pass
 
-    except Exception as e:
-        print(f"Error clipping forest data to AOI: {e}")
-        return None
+    try:
+        import google.auth
+        import google.auth.transport.requests
+
+        creds, _ = google.auth.default()
+        creds.refresh(google.auth.transport.requests.Request())
+        ee.Initialize(creds, **init_kwargs)
+        _EE_INITIALIZED = True
+        print("GEE initialized (refreshed token).")
+        return True
+    except Exception:
+        pass
+
+    try:
+        ee.Authenticate()
+        ee.Initialize(**init_kwargs)
+        _EE_INITIALIZED = True
+        print("GEE initialized (manual authentication).")
+        return True
+    except Exception as exc:
+        print(f"Failed to initialize Earth Engine: {exc}")
+        return False
 
 
-    return forest_col
+def load_forest_image():
+    """Return the full Hansen Global Forest Change image."""
+    import ee
+
+    return ee.Image(FOREST_WATCH)
+
+
+def get_clipped_forest(uploaded_file, project: Optional[str] = None):
+    """Return the Hansen image clipped to an uploaded AOI.
+
+    Args:
+        uploaded_file: Path or file-like object of the user's GeoJSON.
+        project: Optional Google Cloud project ID for Earth Engine.
+
+    Returns:
+        A tuple ``(image, geometry)`` where ``image`` is the clipped
+        ``ee.Image`` and ``geometry`` is the ``ee.Geometry`` of the AOI.
+        Returns ``(None, None)`` on failure.
+    """
+    if not authenticate_and_initialize(project=project):
+        return None, None
+
+    gdf = handle_geojson_upload(uploaded_file)
+    if gdf is None:
+        return None, None
+
+    geometry = convert_uploaded_file_to_ee_geometry(uploaded_file)
+    if geometry is None:
+        return None, None
+
+    try:
+        image = load_forest_image().clip(geometry)
+    except Exception as exc:
+        print(f"Error clipping forest data to AOI: {exc}")
+        return None, None
+
+    return image, geometry
