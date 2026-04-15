@@ -217,7 +217,7 @@ def main() -> None:
     uploaded = controls["uploaded"]
     if uploaded is None:
         st.info(
-            "\ud83d\udc48 Upload a GeoJSON file in the sidebar to get started. "
+            "Upload a GeoJSON file in the sidebar to get started. "
             "The dashboard will validate your AOI and preview it on a map."
         )
         return
